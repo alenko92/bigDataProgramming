@@ -1,5 +1,5 @@
 #!/bin/sh
-../../../start.sh
+../../start.sh
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/input/
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/output/
 /usr/local/hadoop/bin/hdfs dfs -mkdir -p /temp/input/
@@ -11,4 +11,4 @@
 /usr/local/hadoop/bin/hdfs dfs -cat /temp/output/part-00000
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/input/
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/output/
-../../../stop.sh
+../../stop.sh

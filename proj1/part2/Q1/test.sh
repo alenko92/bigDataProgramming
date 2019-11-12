@@ -3,10 +3,10 @@
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/input/
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/output/
 /usr/local/hadoop/bin/hdfs dfs -mkdir -p /temp/input/
-/usr/local/hadoop/bin/hdfs dfs -copyFromLocal ../data/shot_logs.csv /temp/input/
+/usr/local/hadoop/bin/hdfs dfs -copyFromLocal ../../shot_logs.csv /temp/input/
 /usr/local/hadoop/bin/hadoop jar /usr/local/hadoop/share/hadoop/tools/lib/hadoop-streaming-2.9.2.jar \
--file ../q1/mapper.py -mapper ../q1/mapper.py \
--file ../q1/reducer.py -reducer ../q1/reducer.py \
+-files <../Q1/mapper.py> -mapper ../Q1/mapper.py \
+-files <../Q1/reducer.py> -reducer ../Q1/reducer.py \
 -input /temp/input/* -output /temp/output/
 /usr/local/hadoop/bin/hdfs dfs -cat /temp/output/part-00000
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/input/

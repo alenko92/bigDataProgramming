@@ -1,4 +1,5 @@
 #!/bin/sh
+export PATH=$PATH:/usr/local/hadoop/bin/
 ../../../start.sh
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/input/
 /usr/local/hadoop/bin/hdfs dfs -rm -r /temp/output/

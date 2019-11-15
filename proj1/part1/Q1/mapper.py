@@ -10,6 +10,4 @@ for line in sys.stdin:
         continue
     if t == '':
         t = 'Violation Not found'
-
-    # print('%s\t%s' % (t, 1))
     print(t, '--')

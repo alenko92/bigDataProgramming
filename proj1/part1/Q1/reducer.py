@@ -1,4 +1,6 @@
+#!/usr/bin/python
 import sys
+from operator import itemgetter
 
 time_count = {}
 

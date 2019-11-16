@@ -1,7 +1,6 @@
 import re
 import sys
 
-
 for line in sys.stdin:
     line = line.strip()
     violations = line.split(',')
@@ -16,6 +15,5 @@ for line in sys.stdin:
 
     if year == '':
         year = 'Missing'
-
-    # print('%s\t%s' % (make+'_'+body_type+'_'+year, 1))
+        
     print(make, '/', body_type, '/', year)

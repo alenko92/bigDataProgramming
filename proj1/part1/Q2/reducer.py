@@ -1,6 +1,5 @@
 import sys
 
-
 count = {}
 
 for line in sys.stdin:
@@ -14,6 +13,5 @@ for line in sys.stdin:
         pass
 
 sorted_count = sorted(count.items(), key = lambda x:-x[1])
-for car, count in sorted_count[0:5]:
-    # print('%s\t%s' % (car, count))
+for car, count in sorted_count[0:10]:
     print(car, '-', count)

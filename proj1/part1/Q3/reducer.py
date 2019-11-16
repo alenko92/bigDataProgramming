@@ -1,4 +1,6 @@
+#!/usr/bin/python
 import sys
+from opertor import itemgetter
 
 count = {}
 

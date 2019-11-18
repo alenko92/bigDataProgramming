@@ -2,7 +2,6 @@ import sys
 from collections import Counter
 from operator import itemgetter
 
-
 total_count = {}
 hit_count = {}
 player_pairs = []
@@ -45,5 +44,4 @@ for player in players:
 
 
 for player, defender, hitrate, shottimes in player_def_list:
-    # print("%s\t%s\t%s\t%s" % (player,defender,hitrate,shottimes))
     print(player, '--', defender, '--', hitrate, '--', shottimes)

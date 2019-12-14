@@ -80,10 +80,10 @@ def evaluation(TP, TN, FP, FN):
 
 reload(sys)
 sys.setdefaultencoding('utf8')
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: Q2.py <directory_of_files>", file=sys.stderr)
-        sys.exit(-1)
+if __name__: # == "__main__":
+    # if len(sys.argv) != 2:
+        # print("Usage: Q2.py <directory_of_files>", file=sys.stderr)
+        # sys.exit(-1)
         
     spark = SparkSession.builder.appName('lr-predic').getOrCreate()
     df = spark.read.csv(sys.argv[1], header = True, inferSchema = True)

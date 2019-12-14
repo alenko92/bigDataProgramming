@@ -1,5 +1,5 @@
 #!/bin/bash
-source ../env.sh
+source ../../../../env.sh
 /usr/local/hadoop/bin/hdfs dfs -rm -r /proj2/part1/input/
 /usr/local/hadoop/bin/hdfs dfs -mkdir -p /proj2/part1/input/
 /usr/local/hadoop/bin/hdfs dfs -copyFromLocal ../train.csv /proj2/part1/input/

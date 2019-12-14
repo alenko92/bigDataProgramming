@@ -25,8 +25,8 @@ if len(sys.argv) != 2:
 spark = (SparkSession.builder.appName('Toxic Comment Classification').getOrCreate())
 
 directory_path = sys.argv[1]
-train_file_path = directory_path + '/train.csv'
-test_file_path = directory_path + '/test.csv'
+train_file_path = 'train.csv'
+test_file_path = 'test.csv'
 
 
 # load the data as pandas dataframe 

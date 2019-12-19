@@ -1,21 +1,22 @@
 # Proj2
-# Part2: Heart Disease Prediction using Logistic Regression
+# Part3: Logistic Regression Classifier on Census Income Data
 # Alexey Sanko
-#
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import print_function
 import sys
 import os
+import math
+from pyspark import SparkConf, SparkContext, SQLContext
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col,when,udf
+from pyspark.sql.functions import when, col, udf, sum
 from pyspark.sql import types as T
 from pyspark.ml.linalg import Vectors, VectorUDT, SparseVector, DenseVector
-from pyspark.ml import Pipeline
-from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler
-from pyspark.ml.feature import StandardScaler
-from pyspark.ml.feature import ChiSqSelector
 from pyspark.ml.classification import LogisticRegression
-from pyspark.ml.evaluate import BinaryClassificationEvaluator
+from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml import Pipeline
+from pyspark.sql import *
 
 # Function Definitions
 # sparseToDenseConvert() Method to convert sparse vector into a dense vector
@@ -26,120 +27,139 @@ def sparseToDenseConvert(vect):
 
 # oneHotEncodeStages() Method returns a dataframe consisting of the categorical Columns selected
 def oneHotEncodeStages(dataFrame):
-    categoricalCols = ['education','currentSmoker', 'BPMeds', 'prevalentStroke', 'prevalentHyp', 'diabetes']
+    cols = dataFrame.columns
+    caegoricalCols = ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'native-country']
     stages = []
-    for categCol in categoricalCols:
+    for categCol in caegoricalCols:
         stringIndx = StringIndexer(inputCol = categCol, outputCol = categCol + 'Index')
-        encoder = OneHotEncoderEstimator(inputCols=[stringIndx.getOutputCol()], outputCols=[categCol + "classVec"])
+        encoder = OneHotEncoderEstimator(inputCols = [stringIndx.getOutputCol()], outputCols = [categCol + "classVec"])
         stages += [stringIndx, encoder]
 
-    numCols = ['male', 'age', 'cigsPerDay', 'totChol', 'sysBP', 'diaBP', 'BMI', 'heartRate', 'glucose']
-    assembInput = [c + "classVec" for c in categoricalCols] + numCols
-    assembler = VectorAssembler(inputCols=assembInput, outputCol="features")
+    label_stringIdx = StringIndexer(inputCol = 'income', outputCol = 'label')
+    stages += [label_stringIdx]
+    numericCols = ["age", "education-num", "capital-gain", "capital-loss", "hours-per-week"]
+    assemblerInputs = [c + "classVec" for c in caegoricalCols] + numericCols
+    assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="initial_features")
     stages += [assembler]
     pipeline = Pipeline().setStages(stages)
     pipelineModel = pipeline.fit(dataFrame)
     dataFrame = pipelineModel.transform(dataFrame)
-    selectedCols = ['TenYearCHD', 'features'] + cols
+    selectedCols = ['label', 'initial_features'] + cols
     dataFrame = dataFrame.select(selectedCols)
-    sparseToDenseUDF = udf(sparseToDenseConvert, T.ArrayType(T.FloatType()))
-    dataFrame = dataFrame.withColumn('dense_vector_features', sparseToDenseUDF('features'))
-    udF = udf(lambda r : Vectors.dense(r), VectorUDT())
-    dataFrame = dataFrame.withColumn('features', udF('dense_vector_features'))
+    sparse_to_array_udf = udf(sparseToDenseConvert, T.ArrayType(T.FloatType()))
+    dataFrame = dataFrame.withColumn('dense_vector_features', sparse_to_array_udf('initial_features'))
+    ud_f = udf(lambda r : Vectors.dense(r), VectorUDT())
+    dataFrame = dataFrame.withColumn('features', ud_f('dense_vector_features'))
     return dataFrame
 
-# evaluate() Method Evaluates Confusion Matrix for The DataSets
-def evaluate(TP, TN, FP, FN):
-    print('\n\n', 'Confusion Matrix: \n\n', '[[', TN, FP, ']\n\n', '[', FN, TP, ']]')
-    sensitivity = TP/float(TP+FN)
-    specificity = TN/float(TN+FP)
-    print('\n\nAccuracy of the Model = (TP+TN)/(TP+TN+FP+FN) = ', (TP+TN)/float(TP+TN+FP+FN), '\n\n',
-    'Miss-classification = 1-Accuracy = ', 1-((TP+TN)/float(TP+TN+FP+FN)), '\n\n',
-    'True Positive Rate = TP/(TP+FN) = ', TP/float(TP+FN),'\n\n',
-    'True Negative Rate = TN/(TN+FP) = ', TN/float(TN+FP),'\n\n',
-    'Positive Predictive Value = TP/(TP+FP) = ', TP/float(TP+FP),'\n\n',
-    'Negative Predictive Value = TN/(TN+FN) = ', TN/float(TN+FN),'\n\n',
-    'Positive Likelihood Ratio = Positive Rate/(1-Negative Rate) = ', sensitivity/(1-specificity), '\n\n',
-    'Negative likelihood Ratio = (1-Positive Rate)/Negative Rate = ', (1-sensitivity)/specificity, '\n\n')
+# cleanDataFrame() Method returns a cleaned DataFrame after dropping respective columns and unexpected values
+def cleanDataFrame(dataFrame, frequentItems):
+    columnsToDrop = ['education', 'fnlwgt']
+    dataFrame = dataFrame.drop(*columnsToDrop)
+    dataFrame = dataFrame.withColumn('native-country', when(dataFrame['native-country'] == '?', frequentItems[0][0][0]).otherwise(
+        dataFrame['native-country']))
+    dataFrame = dataFrame.withColumn('workclass', when(dataFrame['workclass'] == '?', frequentItems[0][1][0]).otherwise(
+        dataFrame['workclass']))
+    dataFrame = dataFrame.withColumn('occupation', when(dataFrame['occupation'] == '?', frequentItems[0][2][0]).otherwise(
+        dataFrame['occupation']))
+    dataFrame = dataFrame.withColumn('native-country', when(dataFrame['native-country'] != 'United-States', 'Not-US').otherwise(
+        dataFrame['native-country']))
+    dataFrame = oneHotEncodeStages(dataFrame)
+    return dataFrame
+
+# getAccuracyRate() Method that computes the Accuracy Rate of the Prediction DataFrame
+def getAccuracyRate(predDataFrame):
+    accurRate = 0.0
+    numPredictions = predDataFrame.count()
+    predDataFrame = predDataFrame.withColumn('isSame', when(predDataFrame['label'] == predDataFrame['prediction'], 1.0).otherwise(0.0))
+    correctPredictions = predDataFrame.select(sum('isSame')).collect()[0][0]
+    accurRate = (float(correctPredictions) / float(numPredictions)) * 100.0
+    return accurRate
 
 
-### Main Program ###
+### Main Program ###
 reload(sys)
 sys.setdefaultencoding('utf8')
 if __name__:
-    spark = SparkSession.builder.appName('lr-predic').getOrCreate()
-    dataFrame = spark.read.csv(sys.argv[1], header = True, inferSchema = True)
-    dataFrame.show()
-    cols = dataFrame.columns
-    dataFrame.printSchema()
+    conf = SparkConf().setAppName("Project2Part3")
+    sparkContxt = SparkContext(conf = conf)
+    sqlContext = SQLContext(sparkContxt)
+    directPath = sys.argv[1]
+    trainFilePath = directPath + 'adult.data.csv'
+    testFilePath = directPath + 'adult.test.csv'
+    trainingDataFrame = sqlContext.read.load(trainFilePath, format = 'com.databricks.spark.csv', header = 'true', 
+        inferSchema = 'true', ignoreLeadingWhiteSpace='true', ignoreTrailingWhiteSpace='true')
+    nRows = trainingDataFrame.count()
+    nColumns = len(trainingDataFrame.columns)
+    trainingDataFrame.show(5, False)
+    print('# Initial Training Rows:', nRows, '\t# Initial Training Columns:', nColumns, '\n')
+    testDataFrame = sqlContext.read.load(testFilePath, format = 'com.databricks.spark.csv', header = 'true', 
+        inferSchema = 'true', ignoreLeadingWhiteSpace='true', ignoreTrailingWhiteSpace='true')
+    nRows = testDataFrame.count()
+    nColumns = len(testDataFrame.columns)
+    testDataFrame.show(5, False)
+    print('# Initial Test Rows :', nRows, '\t# Initial Test Columns :', nColumns, '\n')
 
-    # Ignore all 'NA' Values
-    dataFrame = dataFrame.filter((dataFrame.cigsPerDay != 'NA')& (dataFrame.BPMeds != 'NA') & (dataFrame.totChol != 'NA') & (dataFrame.BMI != 'NA') & (dataFrame.heartRate != 'NA') & (dataFrame.glucose != 'NA'))
-    stringColumns=['cigsPerDay', 'BPMeds','totChol','BMI', 'heartRate', 'glucose']
-    for col_name in stringColumns:
-        dataFrame = dataFrame.withColumn(col_name, col(col_name).cast('float'))
-    
-    dataFrame.groupby('TenYearCHD').count().show()
-    cols.remove('education')
-    cols.insert(0, 'Summary')
-    dataFrame.describe().select(cols[:len(cols)//2]).show()
-    dataFrame.describe().select(cols[len(cols)//2:-1]).show()
-    cols.remove('TenYearCHD')
-    cols.remove('Summary')
-    print(cols)
-    dataFrame = oneHotEncodeStages(dataFrame)
-    dataFrame.printSchema()
-    
-    # Standarize DataFrame
-    standardscaler = StandardScaler().setInputCol("features").setOutputCol("Scaled_features")
-    dataFrame = standardscaler.fit(dataFrame).transform(dataFrame)
-    dataFrame.select("features", "Scaled_features").show(5)
-    
-    train, test = dataFrame.randomSplit([0.8, 0.2], seed=12345)
+    # Clean Training and Test DataFrames by finding frequent items and fill them in the test DataFrame
+    frequentItems = trainingDataFrame.freqItems(['native-country', 'workclass', 'occupation'], support = 0.6).collect()
+    trainingDataFrame = cleanDataFrame(trainingDataFrame, frequentItems)
+    trainingDataFrame = trainingDataFrame.withColumn('income', when(trainingDataFrame['income'] == '<=50K', 0).otherwise(1))
+    nRows = trainingDataFrame.count()
+    nColumns = len(trainingDataFrame.columns)
+    trainingDataFrame.show(5, False)
+    trainingDataFrame.printSchema()
+    print('\n# Final Training Rows:', nRows, '\t# Final Training Columns:', nColumns, '\n')
+    testDataFrame = cleanDataFrame(testDataFrame, frequentItems)
+    testDataFrame = testDataFrame.withColumn('income', when(testDataFrame['income'] == '<=50K.', 0).otherwise(1))
+    nRows = testDataFrame.count()
+    nColumns = len(testDataFrame.columns)
+    testDataFrame.show(5, False)
+    testDataFrame.printSchema()
+    print('\n# Final Test Rows:', nRows, '\t# Final Test Columns:', nColumns, '\n')
 
-    total = float(train.select("TenYearCHD").count())
-    positiveNum = train.select("TenYearCHD").where('TenYearCHD == 1').count()
-    pOnes = (float(positiveNum)/float(total))*100
-    negativeNum = float(total-positiveNum)
-    print('\n\nThe number of Class 1 are {}'.format(positiveNum))
-    print('\n\nPercentage of Class 1 are {}'.format(pOnes))
+    # New DataFrame with two columns: features and income(label)
+    vTrainDataFrame = trainingDataFrame.select(['label', 'features'])
+    vTrainDataFrame.show(5, False)
+    vTrainDataFrame.printSchema()
+    print('\n\tFinal Training Dataframe for Logistic Regression\n')
+    vTestDataFrame = testDataFrame.select(['label', 'features'])
+    vTestDataFrame.show(5, False)
+    vTestDataFrame.printSchema()
+    print('\n\tFinal Test Dataframe for Logistic Regression\n')
 
-    BalancingRatio= negativeNum/total
-    print('\n\nBalancingRatio = {}'.format(BalancingRatio))
-    train = train.withColumn("classWeights", when(train.TenYearCHD==1, BalancingRatio).otherwise(1-BalancingRatio))
-    train.select("classWeights", "TenYearCHD").show(5)
-    
-    # Feature selection
-    css = ChiSqSelector(featuresCol = 'features', outputCol='Aspect', labelCol='TenYearCHD', fpr = 0.05)
-    train = css.fit(train).transform(train)
-    test = css.fit(test).transform(test)
-    test.select("Aspect").show(5, truncate = False)
+    # Start Logistic Regression Model
+    logisticReg = LogisticRegression(featuresCol = 'features', labelCol = 'label', maxIter = 10)
+    logisticRegModel = logisticReg.fit(vTrainDataFrame)
+    logisticRegCoeff = logisticRegModel.coefficients
+    print('\nCoefficients: ')
+    print([round(i, 3) for i in logisticRegCoeff])
+    print('\nIntercept: ', logisticRegModel.intercept, '\n')
 
-    # Training Model
-    lr = LogisticRegression(labelCol="TenYearCHD", featuresCol="Aspect", weightCol="classWeights", maxIter=10)
-    model = lr.fit(train)
-    predict_train = model.transform(train)
-    predict_test = model.transform(test)
-    predict_train.select("TenYearCHD","prediction").show(5)
-    predict_test.select("TenYearCHD","prediction").show(5) 
-    TP_train = predict_train.filter((predict_train.TenYearCHD == 1) & (predict_train.prediction == 1.0)).count()
-    TN_train = predict_train.filter((predict_train.TenYearCHD == 0) & (predict_train.prediction == 0.0)).count()
-    FP_train = predict_train.filter((predict_train.TenYearCHD == 0) & (predict_train.prediction == 1.0)).count()
-    FN_train = predict_train.filter((predict_train.TenYearCHD == 1) & (predict_train.prediction == 0.0)).count()    
-    print('\n\nEvaluation Results for Training Dataset')
-    evaluate(TP_train, TN_train, FP_train, FN_train)
-    
-    # Testing Model
-    TP_test = predict_test.filter((predict_test.TenYearCHD == 1) & (predict_test.prediction == 1.0)).count()
-    TN_test = predict_test.filter((predict_test.TenYearCHD == 0) & (predict_test.prediction == 0.0)).count()
-    FP_test = predict_test.filter((predict_test.TenYearCHD == 0) & (predict_test.prediction == 1.0)).count()
-    FN_test = predict_test.filter((predict_test.TenYearCHD == 1) & (predict_test.prediction == 0.0)).count()
-    print('\n\nEvaluation Results for Test Dataset')
-    evaluate(TP_test, TN_test, FP_test, FN_test)
+    # Calculate Train Predictions, Accuracy Rate, Area under ROC and Area unde PR
+    evaluator = BinaryClassificationEvaluator()
+    trainPredict = logisticRegModel.transform(vTrainDataFrame)
+    trainPredict.show(5, False)
+    print('\nTraining Predictions DataFrame\n')
+    trainROC = evaluator.setMetricName('areaUnderROC').evaluate(trainPredict)
+    trainPR = evaluator.setMetricName('areaUnderPR').evaluate(trainPredict)
+    condenseTrainPredict = trainPredict.select(['label', 'prediction'])
+    trainACC = round(getAccuracyRate(condenseTrainPredict), 2)
+    condenseTrainPredict.show(5, False)
+    print('\nTraining Predictions DataFrame\n')
+    print('Training Accuracy Rate:', trainACC)
+    print('Training Area under ROC:', round(trainROC, 4))
+    print('Training Area under PR:', round(trainPR, 4), '\n')
 
-    # ROC for Training and Test DataSets
-    evaluator = BinaryClassificationEvaluator(rawPredictionCol = "rawPrediction", labelCol = "TenYearCHD")
-    predict_test.select("TenYearCHD", "rawPrediction", "prediction", "probability").show(5, truncate = False)
-
-    print("\n\nThe area under ROC for train set is {}".format(evaluator.evaluate(predict_train)))
-    print("\n\nThe area under ROC for test set is {}".format(evaluator.evaluate(predict_test)))
+    # Calculate Test Predictions and Accuracy Rate
+    testPredict = logisticRegModel.transform(vTestDataFrame)
+    testPredict.show(5, False)
+    print('\nTest Predictions DataFrame\n')
+    testROC = evaluator.setMetricName('areaUnderROC').evaluate(testPredict)
+    testPR = evaluator.setMetricName('areaUnderPR').evaluate(testPredict)
+    condenseTestPredict = testPredict.select(['label', 'prediction'])
+    testACC = round(getAccuracyRate(condenseTestPredict), 2)
+    condenseTestPredict.show(5, False)
+    print('\nCondensed Test Predictions DataFrame\n')
+    print('Test Accuracy Rate:', testACC)
+    print('Test Area under ROC:', round(testROC, 4))
+    print('Test Area under PR:', round(testPR, 4), '\n')
